@@ -3,51 +3,85 @@ title: Centralized Configuration
 description: Configuration defaults and overrides can be specified in a central repository.
 ---
 
+import MermaidDiagram from '../../../components/MermaidDiagram.astro';
+
 Terrateam supports specifying defaults, overrides, and repository configurations in a central repository. This Centralized Configuration allows for centralized management, reducing the need for repetitive configurations across multiple repositories.
 
-All configuration files in the central repository have the same structure as the existing configuration. There are three ways that the configuration files are used:
+## Configuration Files
 
-###### 1. Defaults
-###### 2. Overrides
-###### 3. Full Configuration
+The configuration structure follows the same format as your repository's [`.terrateam/config.yml`](/configuration-reference/), but can be split across multiple files for different purposes:
 
-The configuration files for a centralized configuration are located in the `terrateam` repository.
+1. **Defaults**: Base configuration that can be overridden by individual repositories
+2. **Overrides**: Configuration that takes precedence over repository settings
+3. **Full Configuration**: Complete configuration that replaces all other settings
 
-The following files are used to construct the repository configuration. File paths are given with the `.yml` extension. The `.yaml` extension is supported as well. If both are present, the `.yml` suffix takes precedence.
+These files are stored in a dedicated `terrateam` repository and are processed in a specific order:
 
-| Name | Repository | Branch | Path |
-|--- |--- |--- |--- |
-| `global_defaults`| `terrateam` | `default branch` | `config/defaults.yml` |
-| `global_overrides` | `terrateam` | `default branch` | `config/overrides.yml` |
-| `repo_defaults` | `terrateam` | `default branch` | `config/$repository_name/defaults.yml` |
-| `repo_overrides` | `terrateam` | `default branch` | `config/$repository_name/overrides.yml` |
-| `repo_forced_config` | `terrateam` | `default branch` | `config/$repository_name/config.yml` |
-| `repo_default_config` | `$repository` | `default branch` | `.terrateam/config.yml` |
-| `repo_config` | `$repository` | `feature branch` | `.terrateam/config.yml` |
+| Name | Repository | Branch | Path | Purpose |
+|--- |--- |--- |--- |--- |
+| `global_defaults`| `terrateam` | Default | `config/defaults.yml` | Base configuration for all repositories |
+| `global_overrides` | `terrateam` | Default | `config/overrides.yml` | Organization-wide settings that override repository configs |
+| `repo_defaults` | `terrateam` | Default | `config/$repository_name/defaults.yml` | Repository-specific base settings |
+| `repo_overrides` | `terrateam` | Default | `config/$repository_name/overrides.yml` | Repository-specific enforced settings |
+| `repo_forced_config` | `terrateam` | Default | `config/$repository_name/config.yml` | Complete configuration that replaces all other settings |
+| `repo_default_config` | Target repository | Default | `.terrateam/config.yml` | Repository's own configuration |
+| `repo_config` | Target repository | Feature | `.terrateam/config.yml` | Pull request branch configuration |
 
-## How It Works
-The configuration files are fetched and merged in a specific order to construct the final configuration for each repository. The process is as follows:
+:::note[Branch Context]
+- **Default branch** refers to your repository's main branch (usually `main` or `master`)
+- **Feature branch** refers to any branch where changes are being made (typically pull request branches)
+:::
 
-###### 1. Fetch the Centralized Repository Configuration Files:
-- `global_defaults`
-- `global_overrides`
-- `repo_defaults`
-- `repo_overrides`
-- `repo_forced_config`
+## Configuration Merging Process
 
-###### 2. Fetch the Repository-specific Configuration Files from the Default and Feature Branches:
-- `repo_default_config`
-- `repo_config`
+<MermaidDiagram chart={`
+flowchart TD
+    subgraph Central ["Centralized Config (terrateam repo)"]
+        A[global_defaults] --> B{repo_forced_config exists?}
+        B -->|Yes| C[Direct Merge]
+        B -->|No| D[Standard Merge]
+        
+        E[repo_defaults] --> D
+        F[global_overrides] --> D
+        G[repo_overrides] --> D
+    end
 
-###### 3. Merge the Configuration Files:
+    subgraph Repo ["Repository Config"]
+        H[repo_default_config] --> D
+        I[repo_config] --> J[Feature Branch Config]
+    end
 
-- If `repo_forced_config` exists, it is merged directly with `global_defaults`.
-- Otherwise, the configurations are merged in two steps:
-  - **Step 1**: Create the default branch configuration by merging:
-    - `global_defaults -> repo_defaults -> global_overrides -> repo_overrides -> repo_default_config`
-  - **Step 2**: Create the feature branch configuration by merging:
-    - `global_defaults -> repo_defaults -> global_overrides -> repo_overrides -> repo_config`
-- Replace specific sections (`access_control`, `apply_requirements`, and `destination_branches`) in the feature branch config with those from the default branch config.
+    D --> K[Default Branch Config]
+    K --> J
+
+`} />
+
+### Standard Merging Process
+
+1. **Default Branch Configuration**
+   - Starts with `global_defaults`
+   - Applies `repo_defaults`
+   - Applies `global_overrides`
+   - Applies `repo_overrides`
+   - Finally applies repository's `.terrateam/config.yml`
+
+2. **Feature Branch Configuration**
+   - Uses the same process as default branch
+   - Additionally applies any changes from the pull request's `.terrateam/config.yml`
+   - Certain sections (`access_control`, `apply_requirements`, `destination_branches`) are always taken from the default branch configuration for security
+
+### Forced Configuration
+
+When `repo_forced_config` exists:
+- Only `global_defaults` and `repo_forced_config` are used
+- All other configuration files are ignored
+- This provides a way to completely control a repository's configuration from the central repository
+
+:::note[Optional Files]
+Most configuration files are optional. The minimum required is either:
+- A `.terrateam/config.yml` in your repository, or
+- `global_defaults` in the central repository
+:::
 
 ## Use Cases
 ### Disable Terrateam by Default
