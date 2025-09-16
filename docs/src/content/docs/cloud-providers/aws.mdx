@@ -6,47 +6,71 @@ description: Configure Terrateam to integrate against AWS
 import { Steps } from '@astrojs/starlight/components';
 import { Card, CardGrid } from '@astrojs/starlight/components';
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
-To use Terrateam with AWS, authentication and authorization need to be configured
-against your AWS account. Setup only takes a minute.
+
+Terrateam supports multiple authentication methods for AWS integration. This guide walks you through setting up authentication and authorization against your AWS account, with [OpenID Connect (OIDC)](https://openid.net/developers/how-connect-works/) being the recommended approach for security best practices.
 
 ## OpenID Connect (OIDC)
 
-<Card title="What is OIDC" icon="information">
-OpenID Connect (OIDC) allows your GitHub Actions workflows to access resources in AWS, without having to store any credentials as long-lived GitHub secrets.
+<Card title="What is OIDC?" icon="information">
+  OpenID Connect (OIDC) allows your GitHub Actions workflows to access resources in AWS without storing any credentials as long-lived GitHub secrets. This provides improved security through short-lived tokens and eliminates the risk of leaked credentials.
 </Card>
 
-A [Terraform module](https://github.com/terrateamio/terraform-aws-terrateam-setup)
-and a [CloudFormation template](https://terrateam-io-public.s3.us-east-2.amazonaws.com/terrateam-setup-cloudformation.yml)
-are available to easily create all of the AWS resources that Terrateam requires.
-Choose the setup method you're most comfortable with.
+<Aside type="caution">
+  While static credentials are supported, we strongly recommend using OIDC for enhanced security. Static credentials require storing long-lived access keys in GitHub secrets, which creates potential security vulnerabilities.
+</Aside>
+
+
+
+### Setup Methods
+
+We provide three different methods to set up OIDC integration with AWS. Choose the method you're most comfortable with:
 
 <Tabs>
   <TabItem label="Terraform">
  
 <Steps>
 
-1. #### `main.tf`
+1. #### Setup `main.tf`
+
+   Create a new Terraform file or add the following module to your existing configuration.
 
    :::note
    Replace `GITHUB_ORG` with your GitHub organization name. This is case-sensitive.
    :::
 
    ```hcl
+   # Terrateam AWS setup module
+   # This creates the necessary IAM role and OIDC provider for GitHub Actions
    module "terraform_aws_terrateam_setup" {
      source               = "github.com/terrateamio/terraform-aws-terrateam-setup"
-     github_org           = "GITHUB_ORG"
+     github_org           = "GITHUB_ORG"  # Replace with your GitHub organization name
+     
      aws_policy_arn       = "arn:aws:iam::aws:policy/PowerUserAccess"
-     aws_iam_role_name    = "terrateam"
-     create_oidc_provider = true
+     
+     aws_iam_role_name    = "terrateam"  # Name of the IAM role to create
+     create_oidc_provider = true  # Set to false if you already have a GitHub OIDC provider
+   }
+
+   # Output the role ARN for reference in your Terrateam config
+   output "terrateam_role_arn" {
+     value = module.terraform_aws_terrateam_setup.aws_iam_role_arn
    }
    ```
+   :::note
+    PowerUserAccess is used as an example only, [choose a policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_job-functions.html) appropriate for your security requirements
+   :::
 
 1. #### Apply Changes
 
-   ```
+   Initialize and apply the Terraform configuration:
+
+   ```sh
+   terraform init
    terraform apply
    ```
+
 
 </Steps>
   </TabItem>
@@ -54,20 +78,24 @@ Choose the setup method you're most comfortable with.
 
 #### Create the `terrateam-setup` Stack
 
-   :::note
-   Replace `GITHUB_ORG` with your GitHub organization name. This is case-sensitive.
-   :::
+This command creates all necessary resources using a CloudFormation stack.
 
-   ```sh
-   aws cloudformation create-stack \
-   --stack-name terrateam-setup \
-   --template-url https://terrateam-io-public.s3.us-east-2.amazonaws.com/terrateam-setup-cloudformation.yml \
-   --parameters ParameterKey=GithubOrg,ParameterValue=GITHUB_ORG \
-   ParameterKey=RoleArn,ParameterValue=arn:aws:iam::aws:policy/PowerUserAccess \
-   ParameterKey=CreateGithubOIDCProvider,ParameterValue=true \
-   ParameterKey=RoleName,ParameterValue=terrateam \
-   --capabilities CAPABILITY_NAMED_IAM
-   ```
+:::note
+Replace `GITHUB_ORG` with your GitHub organization name. This is case-sensitive.
+:::
+
+```sh
+# Create the CloudFormation stack for Terrateam AWS integration
+aws cloudformation create-stack \
+--stack-name terrateam-setup \
+--template-url https://terrateam-io-public.s3.us-east-2.amazonaws.com/terrateam-setup-cloudformation.yml \
+--parameters ParameterKey=GithubOrg,ParameterValue=GITHUB_ORG \
+ParameterKey=RoleArn,ParameterValue=arn:aws:iam::aws:policy/PowerUserAccess \
+ParameterKey=CreateGithubOIDCProvider,ParameterValue=true \
+ParameterKey=RoleName,ParameterValue=terrateam \
+--capabilities CAPABILITY_NAMED_IAM
+```
+
   </TabItem>
   <TabItem label="AWS Console">
 <Steps>
@@ -87,9 +115,15 @@ Choose the setup method you're most comfortable with.
 
 1. #### Specify Stack Details
 
+   Configure the following parameters:
+   - **GithubOrg**: Your GitHub organization name (case-sensitive)
+   - **RoleArn**: `arn:aws:iam::aws:policy/PowerUserAccess` (or choose another appropriate policy)
+
    :::note
-   Specify `GithubOrg` (case-sensitive) and set `RoleArn` to `arn:aws:iam::aws:policy/PowerUserAccess`, or choose another IAM policy that suits your needs.
+   PowerUserAccess is provided as an example. Choose an IAM policy that follows the principle of least privilege for your use case.
+   [Learn more about AWS managed policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html)
    :::
+
    ![Terrateam Setup CloudFormation Stack Details](../../../assets/cloudformation-stack-details.png)
 
 1. #### Configure Stack Options
@@ -102,13 +136,21 @@ Choose the setup method you're most comfortable with.
 
 1. #### Review and Create the Stack
 
+   Review the configuration and check the acknowledgment for IAM resource creation.
+
    ![Terrateam Setup CloudFormation Review and Create](../../../assets/cloudformation-review-and-create.png)
+
 
 </Steps>
   </TabItem>
 </Tabs>
 
 ## Configure Terrateam for OIDC
+
+After setting up the AWS resources, you need to configure your Terraform repository to use the OIDC authentication method.
+
+<Steps>
+1. #### Create the Terrateam configuration file
 
    Create the `.terrateam/config.yml` configuration file at the root of your Terraform repository.
 
@@ -117,21 +159,34 @@ Choose the setup method you're most comfortable with.
    :::
 
    ```yml
+   # Terrateam configuration file
+   # This configures authentication for all Terraform operations
    hooks:
-     all:
-       pre:
-         - type: oidc
-           provider: aws
+     all:    # Apply to all operations (plan, apply, etc.)
+       pre:  # Run before the operation
+         - type: oidc    # Use OIDC authentication
+           provider: aws # AWS provider
+           # The IAM role created in the previous step
            role_arn: "arn:aws:iam::AWS_ACCOUNT_ID:role/terrateam"
    ```
 
-:::tip[Did you know?]
-You can utilize distinct ARNs for various environments and operations. For more details, read the [Cloud Credentials documentation](/advanced-workflows/cloud-credentials).
-:::
+2. #### Commit and push the configuration
 
-## Manual Instructions
+   ```sh
+   git add .terrateam/config.yml
+   git commit -m "Add Terrateam AWS OIDC configuration"
+   git push
+   ```
 
-Follow the instructions below to manually configure AWS for Terrateam authentication and authorization.
+</Steps>
+
+<Aside type="tip">
+  You can utilize distinct role ARNs for different environments and operations. For example, you might use different roles for production vs. development environments, or for read-only vs. write operations. For more details, read the [Cloud Credentials documentation](/advanced-workflows/cloud-credentials).
+</Aside>
+
+## Manual Setup Instructions
+
+For users who need more control over the setup process or want to understand the underlying configuration, we provide manual setup instructions.
 
 <details>
   <summary>Expand for step-by-step OIDC and static credentials instructions</summary>
@@ -142,6 +197,8 @@ Follow the instructions below to manually configure AWS for Terrateam authentica
     1. Create the OIDC provider in AWS
 
         ```sh
+        # Create the GitHub OIDC provider in AWS IAM
+        # The thumbprints are for GitHub's token.actions.githubusercontent.com endpoint
         aws iam create-open-id-connect-provider \
         --url https://token.actions.githubusercontent.com \
         --client-id-list sts.amazonaws.com --thumbprint-list \
@@ -151,9 +208,13 @@ Follow the instructions below to manually configure AWS for Terrateam authentica
 
     1. Create a local file on your workstation named `trustpolicy.json`
 
-       This file will define the policy to be used to allow AWS to trust GitHub’s OIDC as a federated identity. You must update the example file below with your own values. Replace `AWS_ACCOUNT_ID` and `GITHUB_ORG` (case-sensitive).
+       This file defines the policy that allows AWS to trust GitHub's OIDC as a federated identity.
 
-        ```yml
+       :::note
+       Replace `AWS_ACCOUNT_ID` and `GITHUB_ORG` (case-sensitive) with your values.
+       :::
+
+        ```json
         {
           "Version": "2012-10-17",
           "Statement": [
@@ -177,38 +238,51 @@ Follow the instructions below to manually configure AWS for Terrateam authentica
         }
         ```
 
-        - Example [trustpolicy.json](https://github.com/terrateamio/terrateam-example/blob/main/aws/oidc/trustpolicy/single-repository/trustpolicy.json) that grants access to a single repository
-        - Example [trustpolicy.json](https://github.com/terrateamio/terrateam-example/blob/main/aws/oidc/trustpolicy/multiple-repositories/trustpolicy.json) that grants access to multiple repositories
+        - Example [trustpolicy.json](https://github.com/terrateamio/terrateam-example/blob/main/aws/oidc/trustpolicy/single-repository/trustpolicy.json) for a single repository
+        - Example [trustpolicy.json](https://github.com/terrateamio/terrateam-example/blob/main/aws/oidc/trustpolicy/multiple-repositories/trustpolicy.json) for multiple repositories
+        - [Learn more about trust relationships in IAM roles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_terms-and-concepts.html)
 
-    1. Create a `terrateam` IAM role using the newly created `trustpolicy.json`
+    1. Create a `terrateam` IAM role using the trust policy
 
        ```sh
+       # Create the IAM role with the trust policy
        aws iam create-role \
        --role-name terrateam \
        --assume-role-policy-document file://trustpolicy.json
        ```
 
-    1. Attach the `PowerUserAccess` IAM policy or another policy of your choosing
+    1. Attach an IAM policy to the role
 
        ```sh
+       # Attach the PowerUserAccess policy to the role
+       # Note: Choose a policy that follows the principle of least privilege for your use case
        aws iam attach-role-policy \
        --policy-arn arn:aws:iam::aws:policy/PowerUserAccess \
        --role-name terrateam
        ```
 
-    1. [Configure Terrateam for OIDC](#configure-terrateam-for-oidc)
+       [Learn more about AWS managed policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html)
+
+    1. [Configure Terrateam for OIDC](#configure-terrateam-for-oidc) as shown above
 
     </Steps>
   </TabItem>
   <TabItem label="Static Credentials">
+    <Aside type="caution">
+      Static credentials are less secure than OIDC. We recommend using OIDC whenever possible.
+    </Aside>
+    
     <Steps>
     1. Create a `terrateam` IAM user
        ```sh
+       # Create a dedicated IAM user for Terrateam
        aws iam create-user --user-name terrateam
        ```
 
-    1. Attach the `PowerUserAccess` IAM policy
+    1. Attach an IAM policy to the user
        ```sh
+       # Attach the PowerUserAccess policy to the user
+       # Note: Choose a policy that follows the principle of least privilege
        aws iam attach-user-policy \
        --policy-arn arn:aws:iam::aws:policy/PowerUserAccess \
        --user-name terrateam
@@ -216,26 +290,46 @@ Follow the instructions below to manually configure AWS for Terrateam authentica
 
     1. Create an access key for the `terrateam` user
        ```sh
+       # Create access keys - save the output securely!
        aws iam create-access-key --user-name terrateam
        ```
 
-    1. Export your Terraform `organization/repo` combination as an environment variable.
+    1. Export your Terraform `organization/repo` combination
        ```sh
+       # Set environment variable for your GitHub repository
        export REPO="<OWNER/REPO>"
        ```
 
     1. Create the AWS Access Key ID GitHub Secret
        ```sh
+       # Store the Access Key ID as a GitHub secret
+       # You'll need to enter the key when prompted
        gh secret --repo "$REPO" set AWS_ACCESS_KEY_ID
        ```
 
     1. Create the AWS Secret Access Key GitHub Secret
        ```sh
+       # Store the Secret Access Key as a GitHub secret
+       # You'll need to enter the key when prompted
        gh secret --repo "$REPO" set AWS_SECRET_ACCESS_KEY
+       ```
+       
+    1. Create the Terrateam configuration file
+
+       For static credentials, create `.terrateam/config.yml` with the following content:
+       
+       ```yml
+       # Terrateam configuration for static credentials
+       # No pre-hooks needed as GitHub secrets are used directly
        ```
     </Steps>
   </TabItem>
 </Tabs>
 </details>
 
-You are now able to use Terrateam for plan and apply operations against AWS resources.
+
+## Next Steps
+
+Now that you've configured AWS authentication, you are ready to use Terrateam for plan and apply operations against AWS resources. Learn more about:
+
+- [Environment-Specific Credentials](/advanced-workflows/cloud-credentials)
